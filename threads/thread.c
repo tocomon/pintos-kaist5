@@ -28,6 +28,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* sleep queue 선언하기 */
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -62,7 +65,9 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
-
+void thread_sleep(int64_t ticks);
+static bool value_less (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+void wake_up(int64_t ticks);
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -109,6 +114,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
+	list_init(&sleep_list); // + sleep queue 초기화
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -587,4 +593,39 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+/* if the current thread is not idle thread,
+   change the state of the caller thread to BLOCKED,
+   store the local tick to wake up,
+   update the global tick if necessary,
+   and call schedule() */
+/* When you manipulate thread list, disable interrupt! */
+void thread_sleep(int64_t ticks) {
+	enum intr_level old_level;
+	if(thread_current() != idle_thread) {
+		thread_block();
+		wake_up(ticks); // + timer.c 구현
+		schedule();
+	}
+	intr_set_level(old_level); //지워볼수있음
+}
+
+/* wakeup -> ready list */
+void wake_up(int64_t ticks) {
+	while(list_entry(list_next(sleep_list.head),struct thread, elem)-> wakeup_tick <= ticks){
+		struct thread *t = list_entry((sleep_list.head), struct thread, elem);
+		thread_unblock(t);
+		list_insert_ordered(&ready_list, &t -> elem, value_less, NULL);
+		list_pop_front(&sleep_list);
+	}
+	shcedule();
+}
+
+static bool value_less (const struct thread *a_, const struct thread *b_,void *aux UNUSED) 
+{
+  struct thread *a = list_entry (a_, struct thread, elem);
+  struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->priority < b->priority;
 }
