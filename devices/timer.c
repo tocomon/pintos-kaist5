@@ -100,11 +100,6 @@ void timer_sleep(int64_t ticks)
 	{
 		thread_sleep(start + ticks); // + thread.c
 	}
-	// while (timer_elapsed (start) < ticks)
-	// 	thread_yield ();
-	if(timer_elapsed(start) < ticks) {
-		thread_sleep(start+ticks); // + thread.c
-	}
 }
 
 /* Suspends execution for approximately MS milliseconds. */
