@@ -133,7 +133,7 @@ timer_interrupt(struct intr_frame *args UNUSED)
 	ticks++;
 	thread_tick ();
 
-	enum intr_level old_level = intr_disable();
+	// enum intr_level old_level = intr_disable();
 	/* 	code to add:
    		check sleep list and the global tick.
    		find any threads to wake up,
@@ -142,7 +142,7 @@ timer_interrupt(struct intr_frame *args UNUSED)
 		+ wake_up() 함수에 구현했다.
 	*/
 	wake_up(ticks);
-	intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
+	// intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

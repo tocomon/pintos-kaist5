@@ -621,31 +621,53 @@ allocate_tid(void)
  */
 void thread_sleep(int64_t ticks) {
     struct thread *curr = thread_current();
-    enum intr_level old_level = intr_disable();
-    if (curr != idle_thread) { //if the current thread is not idle thread
-        thread_block(); //change the state of the caller thread to BLOCKED
-        curr->wakeup_tick = ticks; //store the local tick to wake up
-        list_insert_ordered(&sleep_list, &curr->elem, sleep_sort, NULL);
-    }
-    schedule();
-    intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
+	enum intr_level old_level;
+	ASSERT(!intr_context());
+	old_level = intr_disable();
+	
+	if (curr != idle_thread) {
+		curr->wakeup_tick = ticks; //store the local tick to wake up
+		list_push_back(&sleep_list, &curr->elem);
+	}
+	
+	thread_block(); //change the state of the caller thread to BLOCKED
+	intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
+	// struct thread *curr = thread_current();
+	// enum intr_level old_level;
+
+	// ASSERT(!intr_context());
+
+	// old_level = intr_disable();
+	// if (curr != idle_thread)
+    // {
+    //     // tick 정보 추가
+    //     curr->wakeup_tick = ticks;
+    //     list_push_back(&sleep_list, &curr->elem);
+    // }
+	// do_schedule(THREAD_BLOCKED);
+	// intr_set_level(old_level);
 }
 
 /* wakeup -> ready list */
 void wake_up(int64_t ticks) {
     // sleep list가 비어있지 않은 경우에만 돌아간다.
-    while (!list_empty(&sleep_list)) {
-        struct thread *curr = list_entry(list_front(&sleep_list), struct thread, elem);
+	enum intr_level old_level = intr_disable();
+	struct thread *curr;
+	list_sort(&sleep_list, sleep_sort, NULL);
+	while (!list_empty(&sleep_list))
+	{
+		curr = list_entry(list_front(&sleep_list), struct thread, elem);
         if (curr->wakeup_tick <= global_ticks) {
             list_pop_front(&sleep_list);
             thread_unblock(curr);
-            list_insert_ordered(&ready_list, &curr->elem, ready_sort, NULL);
-        }
-        else {
+            list_push_back(&ready_list, &curr->elem);
+		}
+		else {
             break;
         }
-    }
-    schedule();
+	}
+	list_sort(&ready_list, ready_sort, NULL);
+	intr_set_level(old_level); /* Whe you manipulate thread list, disable interrupt! */
 }
 
 static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
