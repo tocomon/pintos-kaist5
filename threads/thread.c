@@ -66,8 +66,10 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 void thread_sleep(int64_t ticks);
-static bool value_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+static bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 void wake_up(int64_t ticks);
+int64_t global_ticks;
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -142,7 +144,7 @@ void thread_start(void)
 void thread_tick(void)
 {
 	struct thread *t = thread_current();
-
+	global_ticks++;
 	/* Update statistics. */
 	if (t == idle_thread)
 		idle_ticks++;
@@ -620,33 +622,49 @@ allocate_tid(void)
 /* When you manipulate thread list, disable interrupt! */
 void thread_sleep(int64_t ticks)
 {
-	enum intr_level old_level;
-	if (thread_current() != idle_thread)
+	struct thread *t = thread_current();
+	t->wakeup_tick = ticks;
+	// enum intr_level old_level;
+	if (t != idle_thread)
 	{
 		thread_block();
-		wake_up(ticks); // + timer.c 구현
+		// wake up tick 넣어주기
+		list_insert_ordered(&sleep_list, &t->elem, sleep_sort, NULL);
+
+		// + timer.c 구현
 		schedule();
 	}
-	intr_set_level(old_level); // 지워볼수있음
+	// intr_set_level(old_level); // 지워볼수있음
 }
 
 /* wakeup -> ready list */
 void wake_up(int64_t ticks)
 {
-	while (list_entry(list_next(sleep_list.head.next), struct thread, elem)->wakeup_tick <= ticks)
+	struct thread *curr = list_entry((&sleep_list.head)->next, struct thread, elem);
+	while (curr->wakeup_tick <= ticks)
 	{
-		struct thread *t = list_entry((sleep_list.head.next), struct thread, elem);
-		thread_unblock(t);
-		list_insert_ordered(&ready_list, &t->elem, value_sort, NULL);
-		list_pop_front(&sleep_list);
+		// struct thread *t = list_entry((&sleep_list.head)->next, struct thread, elem);
+		thread_unblock(curr);
+		list_insert_ordered(&ready_list, &curr->elem, ready_sort, NULL);
+		list_remove(list_front(&sleep_list));
+		// list_pop_front(&sleep_list);
+		curr = list_entry((&sleep_list.head)->next->next, struct thread, elem);
+
+		schedule();
 	}
-	shcedule();
 }
 
-static bool value_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
 {
 	struct thread *a = list_entry(a_, struct thread, elem);
 	struct thread *b = list_entry(b_, struct thread, elem);
 
 	return a->priority < b->priority;
+}
+static bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+	struct thread *a = list_entry(a_, struct thread, elem);
+	struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a->wakeup_tick < b->wakeup_tick;
 }
