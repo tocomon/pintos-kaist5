@@ -96,6 +96,11 @@ timer_sleep (int64_t ticks) {
 	if(timer_elapsed(start) < ticks) {
 		thread_sleep(start+ticks); // + thread.c
 	}
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
+	if(timer_elapsed(start) < ticks) {
+		thread_sleep(start+ticks); // + thread.c
+	}
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -123,6 +128,12 @@ timer_print_stats (void) {
 }
 
 /* Timer interrupt handler. */
+/* code to add:
+   check sleep list and the global tick.
+   find any threads to wake up,
+   move them to the ready list if necessary.
+   update the global tick.
+*/
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
@@ -150,6 +161,7 @@ too_many_loops (unsigned loops) {
 		barrier ();
 
 	/* Run LOOPS loops. */
+	start = ticks; 
 	start = ticks; 
 	busy_wait (loops);
 
