@@ -7,7 +7,6 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -18,7 +17,7 @@
 #endif
 
 /* Number of timer ticks since OS booted. */
-static int64_t ticks;
+static int64_t ticks; // global tick으로 생각한다.
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -28,7 +27,6 @@ static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
-
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -93,8 +91,11 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
+	if(timer_elapsed(start) < ticks) {
+		thread_sleep(start+ticks); // + thread.c
+	}
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +127,17 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	enum intr_level old_level = intr_disable();
+	/* 	code to add:
+   		check sleep list and the global tick.
+   		find any threads to wake up,
+   		move them to the ready list if necessary.
+   		update the global tick.
+		+ wake_up() 함수에 구현했다.
+	*/
+	wake_up(ticks);
+	intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -138,7 +150,7 @@ too_many_loops (unsigned loops) {
 		barrier ();
 
 	/* Run LOOPS loops. */
-	start = ticks;
+	start = ticks; 
 	busy_wait (loops);
 
 	/* If the tick count changed, we iterated too long. */
