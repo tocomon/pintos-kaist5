@@ -17,7 +17,7 @@
 #endif
 
 /* Number of timer ticks since OS booted. */
-static int64_t ticks;
+static int64_t ticks; // global tick으로 생각한다.
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -100,6 +100,11 @@ void timer_sleep(int64_t ticks)
 	{
 		thread_sleep(start + ticks); // + thread.c
 	}
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
+	if(timer_elapsed(start) < ticks) {
+		thread_sleep(start+ticks); // + thread.c
+	}
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -127,19 +132,22 @@ void timer_print_stats(void)
 }
 
 /* Timer interrupt handler. */
-/* code to add:
-   check sleep list and the global tick.
-   find any threads to wake up,
-   move them to the ready list if necessary.
-   update the global tick.
-*/
 static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
-	
-	thread_tick();
+	thread_tick ();
+
+	enum intr_level old_level = intr_disable();
+	/* 	code to add:
+   		check sleep list and the global tick.
+   		find any threads to wake up,
+   		move them to the ready list if necessary.
+   		update the global tick.
+		+ wake_up() 함수에 구현했다.
+	*/
 	wake_up(ticks);
+	intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -153,8 +161,9 @@ too_many_loops(unsigned loops)
 		barrier();
 
 	/* Run LOOPS loops. */
-	start = ticks;
-	busy_wait(loops);
+	start = ticks; 
+	start = ticks; 
+	busy_wait (loops);
 
 	/* If the tick count changed, we iterated too long. */
 	barrier();
@@ -204,10 +213,3 @@ real_time_sleep(int64_t num, int32_t denom)
 		busy_wait(loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
 	}
 }
-
-// /* 가장 작은 값 */
-// int64_t get_min() {
-// 	list_sort(&sleep_list, value_less, NULL);
-// 	struct thread *t = list_entry(list_next(&sleep_list.head), struct thread, elem);
-// 	return t->wakeup_tick;
-// }

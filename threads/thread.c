@@ -48,6 +48,8 @@ static long long idle_ticks;   /* # of timer ticks spent idle. */
 static long long kernel_ticks; /* # of timer ticks in kernel threads. */
 static long long user_ticks;   /* # of timer ticks in user programs. */
 
+int64_t global_ticks; //global tick
+
 /* Scheduling. */
 #define TIME_SLICE 4		  /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
@@ -69,7 +71,7 @@ void thread_sleep(int64_t ticks);
 static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 static bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 void wake_up(int64_t ticks);
-int64_t global_ticks;
+
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -614,44 +616,36 @@ allocate_tid(void)
 	return tid;
 }
 
-/* if the current thread is not idle thread,
-   change the state of the caller thread to BLOCKED,
-   store the local tick to wake up,
-   update the global tick if necessary,
-   and call schedule() */
-/* When you manipulate thread list, disable interrupt! */
-void thread_sleep(int64_t ticks)
-{
-	struct thread *t = thread_current();
-	t->wakeup_tick = ticks;
-	// enum intr_level old_level;
-	if (t != idle_thread)
-	{
-		thread_block();
-		// wake up tick 넣어주기
-		list_insert_ordered(&sleep_list, &t->elem, sleep_sort, NULL);
-
-		// + timer.c 구현
-		schedule();
-	}
-	// intr_set_level(old_level); // 지워볼수있음
+/* 
+ * 현재 실행 중인 스레드를 blocked하기
+ */
+void thread_sleep(int64_t ticks) {
+    struct thread *curr = thread_current();
+    enum intr_level old_level = intr_disable();
+    if (curr != idle_thread) { //if the current thread is not idle thread
+        thread_block(); //change the state of the caller thread to BLOCKED
+        curr->wakeup_tick = ticks; //store the local tick to wake up
+        list_insert_ordered(&sleep_list, &curr->elem, sleep_sort, NULL);
+    }
+    schedule();
+    intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
 }
 
 /* wakeup -> ready list */
-void wake_up(int64_t ticks)
-{
-	struct thread *curr = list_entry((&sleep_list.head)->next, struct thread, elem);
-	while (curr->wakeup_tick <= ticks)
-	{
-		// struct thread *t = list_entry((&sleep_list.head)->next, struct thread, elem);
-		thread_unblock(curr);
-		list_insert_ordered(&ready_list, &curr->elem, ready_sort, NULL);
-		list_remove(list_front(&sleep_list));
-		// list_pop_front(&sleep_list);
-		curr = list_entry((&sleep_list.head)->next->next, struct thread, elem);
-
-		schedule();
-	}
+void wake_up(int64_t ticks) {
+    // sleep list가 비어있지 않은 경우에만 돌아간다.
+    while (!list_empty(&sleep_list)) {
+        struct thread *curr = list_entry(list_front(&sleep_list), struct thread, elem);
+        if (curr->wakeup_tick <= global_ticks) {
+            list_pop_front(&sleep_list);
+            thread_unblock(curr);
+            list_insert_ordered(&ready_list, &curr->elem, ready_sort, NULL);
+        }
+        else {
+            break;
+        }
+    }
+    schedule();
 }
 
 static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
