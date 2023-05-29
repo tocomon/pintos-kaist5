@@ -622,9 +622,10 @@ allocate_tid(void)
 void thread_sleep(int64_t ticks) {
     struct thread *curr = thread_current();
 	enum intr_level old_level;
+
 	ASSERT(!intr_context());
+
 	old_level = intr_disable();
-	
 	if (curr != idle_thread) {
 		curr->wakeup_tick = ticks; //store the local tick to wake up
 		list_push_back(&sleep_list, &curr->elem);
@@ -632,20 +633,6 @@ void thread_sleep(int64_t ticks) {
 	
 	thread_block(); //change the state of the caller thread to BLOCKED
 	intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
-	// struct thread *curr = thread_current();
-	// enum intr_level old_level;
-
-	// ASSERT(!intr_context());
-
-	// old_level = intr_disable();
-	// if (curr != idle_thread)
-    // {
-    //     // tick 정보 추가
-    //     curr->wakeup_tick = ticks;
-    //     list_push_back(&sleep_list, &curr->elem);
-    // }
-	// do_schedule(THREAD_BLOCKED);
-	// intr_set_level(old_level);
 }
 
 /* wakeup -> ready list */
@@ -657,10 +644,10 @@ void wake_up(int64_t ticks) {
 	while (!list_empty(&sleep_list))
 	{
 		curr = list_entry(list_front(&sleep_list), struct thread, elem);
-        if (curr->wakeup_tick <= global_ticks) {
+        if (curr->wakeup_tick <= ticks) {
             list_pop_front(&sleep_list);
             thread_unblock(curr);
-            list_push_back(&ready_list, &curr->elem);
+            // list_push_back(&ready_list, &curr->elem);
 		}
 		else {
             break;
