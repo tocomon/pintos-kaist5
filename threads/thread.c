@@ -214,7 +214,8 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock(t);
-	if (thread_get_priority() < t->priority) {
+	//preemtive - 조건 확인 잘하기
+	if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
         thread_yield();
     }
 	return tid;
@@ -325,7 +326,10 @@ void thread_yield(void)
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
-	list_sort(&ready_list, ready_sort, NULL);
+	//preemtive - 조건 확인 잘하기
+	if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
+        thread_yield();
+    }
 }
 
 /* Returns the current thread's priority. */
