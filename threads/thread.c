@@ -214,7 +214,9 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock(t);
-
+	if (thread_get_priority() < t->priority) {
+        thread_yield();
+    }
 	return tid;
 }
 
@@ -248,7 +250,8 @@ void thread_unblock(struct thread *t)
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	// list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, ready_sort, NULL);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
@@ -313,7 +316,7 @@ void thread_yield(void)
 
 	old_level = intr_disable();
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, ready_sort, NULL);
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
@@ -322,6 +325,7 @@ void thread_yield(void)
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
+	list_sort(&ready_list, ready_sort, NULL);
 }
 
 /* Returns the current thread's priority. */
@@ -628,7 +632,7 @@ void thread_sleep(int64_t ticks) {
 	old_level = intr_disable();
 	if (curr != idle_thread) {
 		curr->wakeup_tick = ticks; //store the local tick to wake up
-		list_push_back(&sleep_list, &curr->elem);
+		list_insert_ordered(&sleep_list, &curr->elem, sleep_sort, NULL);
 	}
 	
 	thread_block(); //change the state of the caller thread to BLOCKED
@@ -638,9 +642,9 @@ void thread_sleep(int64_t ticks) {
 /* wakeup -> ready list */
 void wake_up(int64_t ticks) {
     // sleep list가 비어있지 않은 경우에만 돌아간다.
-	enum intr_level old_level = intr_disable();
+	enum intr_level old_level;
 	struct thread *curr;
-	list_sort(&sleep_list, sleep_sort, NULL);
+	old_level = intr_disable();
 	while (!list_empty(&sleep_list))
 	{
 		curr = list_entry(list_front(&sleep_list), struct thread, elem);
@@ -653,7 +657,6 @@ void wake_up(int64_t ticks) {
             break;
         }
 	}
-	list_sort(&ready_list, ready_sort, NULL);
 	intr_set_level(old_level); /* Whe you manipulate thread list, disable interrupt! */
 }
 
@@ -662,7 +665,7 @@ static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, v
 	struct thread *a = list_entry(a_, struct thread, elem);
 	struct thread *b = list_entry(b_, struct thread, elem);
 
-	return a->priority < b->priority;
+	return a->priority > b->priority;
 }
 static bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
 {
