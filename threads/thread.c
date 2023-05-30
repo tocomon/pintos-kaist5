@@ -199,6 +199,8 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Initialize thread. */
 	init_thread(t, name, priority);
+	// donation list 초기화
+	list_init(&t->donations);
 	tid = t->tid = allocate_tid();
 
 	/* Call the kernel_thread if it scheduled.
@@ -434,7 +436,10 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
-	list_init(&t->donations);
+	
+	//추가한 필드에 대한 초기화
+	t->wait_on_lock = NULL;
+	// list_init(&t->donations);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
