@@ -91,15 +91,13 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int64_t wakeup_tick;				/* 깨워주기 위한 값 */
+	int64_t wakeup_tick;					/* 깨워주기 위한 값 */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
-	// 추가한 필드
-	struct lock *wait_on_lock;			/* 대가즁인 LOCK */
-	struct list donations;				/* donation list */
-	struct list_elem donation_elem;
+	//추가한 필드
+	int init_priority;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -148,5 +146,11 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+//만든 함수 선언
+bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+void wake_up(int64_t ticks);
+void preemptive();
 
 #endif /* threads/thread.h */
