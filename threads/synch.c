@@ -183,6 +183,8 @@ lock_init (struct lock *lock) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+
+// donation list에 모든 요소 삽입하는 코드
 // void
 // lock_acquire (struct lock *lock) {
 //     ASSERT (lock != NULL);
@@ -199,6 +201,7 @@ lock_init (struct lock *lock) {
 //     curr->wait_on_lock = NULL;
 //     lock->holder = curr;
 // }
+
 void lock_acquire(struct lock *lock)
 {
 	ASSERT(lock != NULL);
@@ -231,18 +234,7 @@ void lock_acquire(struct lock *lock)
 					}
 				}
 			}
-			while (th->wait_on_lock != NULL) // Nested donation
-			{
-				if (curr->priority > lock->holder->priority)
-				{
-					lock->holder->priority = curr->priority;
-					th = lock->holder;
-				}
-				else
-				{
-					break;
-				}
-			}
+			donate_priority();
 		}
 	}
 	sema_down(&lock->semaphore);
