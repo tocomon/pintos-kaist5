@@ -97,7 +97,10 @@ struct thread {
 	struct list_elem elem;              /* List element. */
 
 	//추가한 필드
-	int init_priority;
+	struct lock *wait_on_lock;          /* 대가중인 LOCK */
+    struct list donations;              /* donation list */
+    struct list_elem donation_elem;     /* donation element */
+    int origin_priority;                /* 처음에 부여받은 우선순위 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

@@ -320,8 +320,10 @@ void thread_yield(void)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {
-	thread_current()->priority = new_priority;
-	//preemtive - 조건 확인 잘하기
+	//priority는 donate에 의해 변경될 수 있는 우선순위이다.!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	thread_current()->origin_priority = new_priority; //set은 origin_priority의 값을 변경해주어야 한다
+	update_priority();
+	// preemtive - 조건 확인 잘하기
 	preemptive();
 }
 
@@ -426,6 +428,11 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	//추가한 필드에 대한 초기화
+	t->wait_on_lock = NULL;
+	list_init(&t->donations);
+	t->origin_priority = t->priority;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
