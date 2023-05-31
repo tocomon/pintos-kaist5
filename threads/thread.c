@@ -68,9 +68,6 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 void thread_sleep(int64_t ticks);
-static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
-static bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
-void wake_up(int64_t ticks);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -199,8 +196,6 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Initialize thread. */
 	init_thread(t, name, priority);
-	// donation list 초기화
-	list_init(&t->donations);
 	tid = t->tid = allocate_tid();
 
 	/* Call the kernel_thread if it scheduled.
@@ -217,9 +212,7 @@ tid_t thread_create(const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock(t);
 	//preemtive - 조건 확인 잘하기
-	if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
-        thread_yield();
-    }
+	preemptive();
 	return tid;
 }
 
@@ -328,11 +321,8 @@ void thread_yield(void)
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
-	list_sort(&ready_list, ready_sort, NULL);
-	// preemtive - 조건 확인 잘하기
-	if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem)->priority) {
-        thread_yield();
-    }
+	//preemtive - 조건 확인 잘하기
+	preemptive();
 }
 
 /* Returns the current thread's priority. */
@@ -436,10 +426,6 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
-	
-	//추가한 필드에 대한 초기화
-	t->wait_on_lock = NULL;
-	// list_init(&t->donations);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -663,6 +649,7 @@ void wake_up(int64_t ticks) {
             list_pop_front(&sleep_list);
             thread_unblock(curr);
             // list_push_back(&ready_list, &curr->elem);
+			preemptive();
 		}
 		else {
             break;
@@ -671,17 +658,40 @@ void wake_up(int64_t ticks) {
 	intr_set_level(old_level); /* Whe you manipulate thread list, disable interrupt! */
 }
 
-static bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+/*
+ * 우선순위 내림차순 정렬
+ */
+bool ready_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
 {
 	struct thread *a = list_entry(a_, struct thread, elem);
 	struct thread *b = list_entry(b_, struct thread, elem);
 
 	return a->priority > b->priority;
 }
-static bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+
+/*
+ * wakeup_tick 오름차순 정렬
+ */
+bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
 {
 	struct thread *a = list_entry(a_, struct thread, elem);
 	struct thread *b = list_entry(b_, struct thread, elem);
 
 	return a->wakeup_tick < b->wakeup_tick;
+}
+
+/*
+ * 선점 함수
+ */
+void preemptive() {
+	if (thread_current() == idle_thread)
+        return;
+    if (list_empty(&ready_list))
+        return;
+
+    struct thread *curr = thread_current();
+    struct thread *ready = list_entry(list_front(&ready_list), struct thread, elem);
+    if (curr->priority < ready->priority) {
+        thread_yield();
+    }
 }
