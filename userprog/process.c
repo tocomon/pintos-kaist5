@@ -26,6 +26,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+void argument_stack(char **argv, int argc, void **rsp);
 
 /* General process initializer for initd and other process. */
 static void
@@ -40,7 +41,7 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
+	char *fn_copy, *save_ptr;
 	tid_t tid;
 
 	/* Make a copy of FILE_NAME.
@@ -49,6 +50,9 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
+
+	// 입력받은 명령어 중에서 가장 앞의 토큰 = 스레드 이름
+	strtok_r(file_name, " ", &save_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
@@ -176,8 +180,28 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	/* ---------------추가한 부분------------- */
+	//parsing
+	char *save_ptr, *tocken;
+	char *arg[64];
+	int count = 0;
+	for (tocken = strtok_r(file_name, " ", &save_ptr); tocken != NULL; tocken = strtok_r(NULL, " ", &save_ptr)) {
+		arg[count] = tocken;
+		count++;
+	}
+	/* ---------------------------------- */
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
+
+	/* ---------------추가한 부분------------- */
+	//set up stack
+	argument_stack(arg, count, &_if.rsp);
+	_if.R.rdi = count;
+	_if.R.rsi = (char *)_if.rsp + 8;
+
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
+	/* ---------------------------------- */
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -204,6 +228,9 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while(1) {
+
+	}
 	return -1;
 }
 
@@ -637,3 +664,29 @@ setup_stack (struct intr_frame *if_) {
 	return success;
 }
 #endif /* VM */
+
+void argument_stack(char **argv, int argc, void **rsp) {
+    // command 오른쪽부터 스택에 삽입
+    for (int i = argc - 1; i >= 0; i--) {
+		int arg_len = strlen(argv[i]);
+		(*rsp) -= arg_len;
+		**(char **)rsp = argv[i];
+		argv[i] = *(char **)rsp; // 인자의 주소를 배열에 저장
+	}
+
+    while ((int)(*rsp) % 8 != 0) { //스택 포인터가 8의 배수가 되도록
+        (*rsp)--;  // 스택 포인터를 1바이트씩 이동
+        **(uint8_t **)rsp = 0;
+    }
+
+    for (int i = argc; i >= 0; i--) {
+        (*rsp) -= 8;  // 스택 포인터 이동
+        if (i == argc)
+			**(char ***)rsp = 0;
+		else
+			**(char ***)rsp = argv[i];
+    }
+
+    (*rsp) -= 8;  // 스택 포인터 이동
+    **(void ***)rsp = 0;
+}
