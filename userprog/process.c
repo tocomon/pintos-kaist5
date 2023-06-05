@@ -46,7 +46,7 @@ process_create_initd (const char *file_name) {
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
+	fn_copy = palloc_get_page (0); //커널 모드에 할당
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
@@ -197,8 +197,8 @@ process_exec (void *f_name) {
 	/* ---------------추가한 부분------------- */
 	//set up stack
 	argument_stack(arg, count, &_if.rsp);
-	_if.R.rdi = count;
-	_if.R.rsi = (char *)_if.rsp + 8;
+	_if.R.rdi = count; //argc 값 저장
+	_if.R.rsi = (char *)_if.rsp + 8; //argv의 시작 주소 저장
 
 	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 	/* ---------------------------------- */
@@ -666,12 +666,14 @@ setup_stack (struct intr_frame *if_) {
 #endif /* VM */
 
 void argument_stack(char **argv, int argc, void **rsp) {
-    // command 오른쪽부터 스택에 삽입
+    // command 오른쪽 단어부터 스택에 삽입
     for (int i = argc - 1; i >= 0; i--) {
-		int arg_len = strlen(argv[i]);
-		(*rsp) -= arg_len;
-		**(char **)rsp = argv[i];
-		argv[i] = *(char **)rsp; // 인자의 주소를 배열에 저장
+		//입력 받은 인자 1개 또한 스택에 넣어주는 것이므로 오른쪽 글자부터 넣어준다.
+		for (int j = strlen(argv[i]); j >= 0; j--) {
+            (*rsp)--; // 스택 주소 감소
+            **(char **)rsp = argv[i][j]; // 주소에 문자 저장
+        }
+		argv[i] = *(char **)rsp; // 인자가 스택에 저장되어있는 주소를 배열에 저장
 	}
 
     while ((int)(*rsp) % 8 != 0) { //스택 포인터가 8의 배수가 되도록
@@ -680,13 +682,13 @@ void argument_stack(char **argv, int argc, void **rsp) {
     }
 
     for (int i = argc; i >= 0; i--) {
-        (*rsp) -= 8;  // 스택 포인터 이동
-        if (i == argc)
+        (*rsp) -= 8; 
+        if (i == argc) //argument의 끝을 나타내는 공백 추가
 			**(char ***)rsp = 0;
-		else
+		else // 각각의 argument가 스택에 저장되어있는 주소 저장
 			**(char ***)rsp = argv[i];
     }
 
-    (*rsp) -= 8;  // 스택 포인터 이동
+    (*rsp) -= 8; //return 값의 주소인 fake address 저장
     **(void ***)rsp = 0;
 }
