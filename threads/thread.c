@@ -48,7 +48,7 @@ static long long idle_ticks;   /* # of timer ticks spent idle. */
 static long long kernel_ticks; /* # of timer ticks in kernel threads. */
 static long long user_ticks;   /* # of timer ticks in user programs. */
 
-int64_t global_ticks; //global tick
+int64_t global_ticks; // global tick
 
 /* Scheduling. */
 #define TIME_SLICE 4		  /* # of timer ticks to give each thread. */
@@ -208,10 +208,12 @@ tid_t thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
+	t->fdt = palloc_get_multiple(PAL_ZERO, 2);
+	if (t->fdt == NULL)
+		return TID_ERROR;
 	/* Add to run queue. */
 	thread_unblock(t);
-	//preemtive - 조건 확인 잘하기
+	// preemtive - 조건 확인 잘하기
 	preemptive();
 	return tid;
 }
@@ -320,8 +322,8 @@ void thread_yield(void)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority)
 {
-	//priority는 donate에 의해 변경될 수 있는 우선순위이다.!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	thread_current()->origin_priority = new_priority; //set은 origin_priority의 값을 변경해주어야 한다
+	// priority는 donate에 의해 변경될 수 있는 우선순위이다.!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	thread_current()->origin_priority = new_priority; // set은 origin_priority의 값을 변경해주어야 한다
 	update_priority();
 	// preemtive - 조건 확인 잘하기
 	preemptive();
@@ -429,10 +431,17 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
 
-	//추가한 필드에 대한 초기화
+	// 추가한 필드에 대한 초기화
 	t->wait_on_lock = NULL;
 	list_init(&t->donations);
 	t->origin_priority = t->priority;
+
+	t->exit_status = 0;
+	t->next_fd = 2;
+	sema_init(&t->load_sema, 0);
+	sema_init(&t->exit_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	list_init(&(t->child_list));
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -624,43 +633,48 @@ allocate_tid(void)
 	return tid;
 }
 
-/* 
+/*
  * 현재 실행 중인 스레드를 blocked하기
  */
-void thread_sleep(int64_t ticks) {
-    struct thread *curr = thread_current();
+void thread_sleep(int64_t ticks)
+{
+	struct thread *curr = thread_current();
 	enum intr_level old_level;
 
 	ASSERT(!intr_context());
 
 	old_level = intr_disable();
-	if (curr != idle_thread) {
-		curr->wakeup_tick = ticks; //store the local tick to wake up
+	if (curr != idle_thread)
+	{
+		curr->wakeup_tick = ticks; // store the local tick to wake up
 		list_insert_ordered(&sleep_list, &curr->elem, sleep_sort, NULL);
 	}
-	
-	thread_block(); //change the state of the caller thread to BLOCKED
+
+	thread_block();			   // change the state of the caller thread to BLOCKED
 	intr_set_level(old_level); /* When you manipulate thread list, disable interrupt! */
 }
 
 /* wakeup -> ready list */
-void wake_up(int64_t ticks) {
-    // sleep list가 비어있지 않은 경우에만 돌아간다.
+void wake_up(int64_t ticks)
+{
+	// sleep list가 비어있지 않은 경우에만 돌아간다.
 	enum intr_level old_level;
 	struct thread *curr;
 	old_level = intr_disable();
 	while (!list_empty(&sleep_list))
 	{
 		curr = list_entry(list_front(&sleep_list), struct thread, elem);
-        if (curr->wakeup_tick <= ticks) {
-            list_pop_front(&sleep_list);
-            thread_unblock(curr);
-            // list_push_back(&ready_list, &curr->elem);
+		if (curr->wakeup_tick <= ticks)
+		{
+			list_pop_front(&sleep_list);
+			thread_unblock(curr);
+			// list_push_back(&ready_list, &curr->elem);
 			preemptive();
 		}
-		else {
-            break;
-        }
+		else
+		{
+			break;
+		}
 	}
 	intr_set_level(old_level); /* Whe you manipulate thread list, disable interrupt! */
 }
@@ -690,15 +704,17 @@ bool sleep_sort(const struct list_elem *a_, const struct list_elem *b_, void *au
 /*
  * 선점 함수
  */
-void preemptive() {
+void preemptive()
+{
 	if (thread_current() == idle_thread)
-        return;
-    if (list_empty(&ready_list))
-        return;
+		return;
+	if (list_empty(&ready_list))
+		return;
 
-    struct thread *curr = thread_current();
-    struct thread *ready = list_entry(list_front(&ready_list), struct thread, elem);
-    if (curr->priority < ready->priority) {
-        thread_yield();
-    }
+	struct thread *curr = thread_current();
+	struct thread *ready = list_entry(list_front(&ready_list), struct thread, elem);
+	if (curr->priority < ready->priority)
+	{
+		thread_yield();
+	}
 }
