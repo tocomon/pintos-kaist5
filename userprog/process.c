@@ -26,7 +26,6 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
-void argument_stack(char **argv, int argc, void **rsp);
 
 /* General process initializer for initd and other process. */
 static void
@@ -80,8 +79,22 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *curr = thread_current();
+	memcpy(&curr->parent_if, if_, sizeof(struct intr_frame));
+
+	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, curr);
+	if(tid == TID_ERROR) {
+		return TID_ERROR;
+	}
+
+	struct thread *child = get_child_process(tid);
+	sema_down(&child->load_sema);
+	if(child->exit_status == -2) {
+		sema_up(&child->exit_sema);
+		return TID_ERROR;
+	}
+
+	return tid;
 }
 
 #ifndef VM
@@ -96,21 +109,34 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if(is_kernel_vaddr(va)) {
+		return true;
+	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if(parent_page == NULL) {
+		return false;
+	}
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	if(newpage == NULL) {
+		return false;
+	}
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		return false;
 	}
 	return true;
 }
@@ -126,11 +152,12 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->parent_if;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	if_.R.rax = 0; //자식 프로세스의 리턴값 0으로 설정
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -152,14 +179,28 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
-
-	process_init ();
-
+	
+	// FDT 복사
+	for (int i = 0; i < FDT_COUNT_LIMIT; i++) {
+		struct file *file = parent->fdt[i];
+		if (file == NULL) {
+			continue;
+		}
+		if (file > 2) {
+			file = file_duplicate(file);
+		}
+		current->fdt[i] = file;
+	}
+	current->next_fd = parent->next_fd;
+	sema_up(&current->load_sema);
+	process_init();
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	sema_up(&current->load_sema);
+	// thread_exit();
+	exit(-2);
 }
 
 /* Switch the current execution context to the f_name.
@@ -194,19 +235,24 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
+	if(!success) {
+		palloc_free_page(file_name);
+		return -1;
+	}
+
 	/* ---------------추가한 부분------------- */
 	//set up stack
 	argument_stack(arg, count, &_if.rsp);
 	_if.R.rdi = count; //argc 값 저장
 	_if.R.rsi = (char *)_if.rsp + 8; //argv의 시작 주소 저장
 
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 	/* ---------------------------------- */
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
-	if (!success)
-		return -1;
+	// if (!success)
+	// 	return -1;
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -228,10 +274,15 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while(1) {
-
+	struct thread *child = get_child_process(child_tid);
+	if (child == NULL) {
+		return -1;
 	}
-	return -1;
+	sema_down(&child->wait_sema);
+	list_remove(&child->child_elem);
+	sema_up(&child->exit_sema);
+
+	return child->exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -243,7 +294,15 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	process_cleanup ();
+	//FDT 메모리 해제하기
+	for (int i = 2; i < FDT_COUNT_LIMIT; i++) {
+		close(i);
+	}
+	palloc_free_page(curr->fdt);
+	file_close(curr->running);
+	process_cleanup();
+	sema_up(&curr->wait_sema);
+	sema_down(&curr->exit_sema);
 }
 
 /* Free the current process's resources. */
@@ -434,6 +493,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
+	t->running = file;
+	file_deny_write(file);
+
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
@@ -448,7 +510,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	// file_close (file);
 	return success;
 }
 
@@ -691,4 +753,62 @@ void argument_stack(char **argv, int argc, void **rsp) {
 
     (*rsp) -= 8; //return 값의 주소인 fake address 저장
     **(void ***)rsp = 0;
+}
+
+/*
+ * 자식 리스트에서 child_tid를 가진 스레드 찾는 함수
+ */
+struct thread *get_child_process(tid_t child_tid) {
+	struct list *child = &thread_current()->child_list;
+	for (struct list_elem *e = list_begin(child); e != list_end(child); e = list_next(e)) {
+		struct thread *t = list_entry(e, struct thread, child_elem);
+		if(t->tid == child_tid) {
+			return t;
+		}
+	}
+	return NULL;
+}
+
+/*
+ * 새로운 파일 객체제 대한 파일 디스크립터 생성하는 함수
+ * fdt에도 추가해준다.
+ */
+int process_add_file(struct file *f) {
+	struct thread *cur = thread_current();
+	struct file **fdt = cur->fdt;
+
+	//범위를 벗어나지 않고 인덱스에 값이 존재하지 않을 때까지
+	while(cur->next_fd < FDT_COUNT_LIMIT && fdt[cur->next_fd]!= NULL) {
+		cur->next_fd++;
+	}
+
+	if(cur->next_fd == FDT_COUNT_LIMIT) { //범위를 넘어설 때까지 남은 공간이 없으면
+		return -1;
+	}
+	fdt[cur->next_fd] = f;
+
+	return cur->next_fd;
+}
+
+/*
+ * FDT에서 fd값을 가진 파일 객체 제거
+ */
+void process_close_file(int fd) {
+	struct file **fdt = thread_current()->fdt;
+	if(fd < 0 || fd > FDT_COUNT_LIMIT) {
+		return NULL;
+	}
+	fdt[fd] = NULL;
+}
+
+/*
+ * fd가 가리키는 파일 반환하는 함수
+ */
+int process_get_file(int fd) {
+	struct file **fdt = thread_current()->fdt;
+
+	if(fd < 0 || fd > FDT_COUNT_LIMIT) {
+		return NULL;
+	}
+	return fdt[fd];
 }
