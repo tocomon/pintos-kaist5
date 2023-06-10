@@ -44,7 +44,7 @@ static void process_init(void)
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t process_create_initd(const char *file_name)
 {
-
+	printf("create initd\n");
 	char *fn_copy, *save_ptr;
 	tid_t tid;
 
@@ -69,13 +69,15 @@ tid_t process_create_initd(const char *file_name)
 static void
 initd(void *f_name)
 {
+	printf("initd\n");
 
 #ifdef VM
 	supplemental_page_table_init(&thread_current()->spt);
 #endif
-
+	printf("call process init\n");
 	process_init();
 
+	printf("call process exec\n");
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED();
@@ -202,7 +204,9 @@ int process_exec(void *f_name)
 	/* ---------------------------------- */
 
 	/* And then load the binary */
+	printf("load start\n");
 	success = load(file_name, &_if);
+	printf("load end\n");
 
 	/* ---------------추가한 부분------------- */
 	// set up stack
@@ -210,7 +214,7 @@ int process_exec(void *f_name)
 	_if.R.rdi = count;				 // argc 값 저장
 	_if.R.rsi = (char *)_if.rsp + 8; // argv의 시작 주소 저장
 
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 	/* ---------------------------------- */
 
 	/* If load failed, quit. */
@@ -218,6 +222,9 @@ int process_exec(void *f_name)
 		return -1;
 	palloc_free_page(file_name);
 	/* Start switched process. */
+
+	printf("success!\n");
+
 	do_iret(&_if);
 	NOT_REACHED();
 }

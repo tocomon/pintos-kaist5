@@ -52,6 +52,7 @@ void syscall_init(void)
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f UNUSED)
 {
+	printf("syscall handler\n");
 	// TODO: Your implementation goes here.
 	check_address(&f->rsp);		 // 스택 포인터가 유저 영역인지 확인
 	uint64_t sys_num = f->R.rax; // syscall number
@@ -62,6 +63,9 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	void *buffer;
 	struct thread *curr = thread_current();
 	struct file *file_o;
+
+	printf("sysnum: %d\n", sys_num);
+
 	switch (sys_num)
 	{
 	case SYS_HALT:
@@ -222,7 +226,7 @@ int wait(int pid)
 void exit(int status)
 {
 	struct thread *curr = thread_current();
-	curr->exit_status = status; // 이거 wait에서 사용?
+	curr->exit_status = status;
 	printf("%s: exit(%d)\n", curr->name, status);
 	thread_exit();
 }
