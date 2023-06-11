@@ -850,7 +850,7 @@ void process_close_file(int fd)
 /*
  * fd가 가리키는 파일 반환하는 함수
  */
-int process_get_file(int fd)
+struct file *process_get_file(int fd)
 {
 	struct file **fdt = thread_current()->fdt;
 

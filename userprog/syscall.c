@@ -9,11 +9,10 @@
 #include "intrinsic.h"
 
 // 추가 헤더파일
-#include "threads/synch.h"
 #include "userprog/process.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
-#include "devices/input.h"
+// #include "devices/input.h"
 #include "threads/palloc.h"
 
 void syscall_entry(void);
@@ -49,8 +48,6 @@ void close(int fd);
 #define MSR_STAR 0xc0000081			/* Segment selector msr */
 #define MSR_LSTAR 0xc0000082		/* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
-
-struct lock filesys_lock; // 파일 동기화를 위한 전역변수
 
 void syscall_init(void)
 {
@@ -158,6 +155,7 @@ void exit(int status)
 // 현재 프로세스를 복사한다.
 int fork(const char *thread_name, struct intr_frame *f)
 {
+	check_address(thread_name);
 	return process_fork(thread_name, f);
 }
 
@@ -206,9 +204,12 @@ bool remove(const char *file)
 int open(const char *file)
 {
 	check_address(file);
+	lock_acquire(&filesys_lock);
 	struct file *f = filesys_open(file);
+	lock_release(&filesys_lock);
 	if (f == NULL)
 	{
+		// lock_release(&filesys_lock);
 		return -1;
 	}
 	// 파일 디스크립터 생성하기
@@ -217,6 +218,7 @@ int open(const char *file)
 	if (fd == -1)
 	{
 		file_close(f);
+		
 	}
 	return fd;
 }
@@ -241,17 +243,9 @@ int read(int fd, void *buffer, unsigned size)
 
 	if (fd == 0)
 	{
-		for (int i = 0; i < size; i++)
-		{
-			char ch = input_getc();
-			if (ch == '\n')
-			{
-				break;
-			}
-			*ptr = ch;
-			ptr++;
-			result++;
-		}
+		lock_acquire(&filesys_lock);
+		result = input_getc();
+		lock_release(&filesys_lock);
 	}
 	else if (fd == 1)
 	{
@@ -279,7 +273,9 @@ int write(int fd, const void *buffer, unsigned size)
 
 	if (fd == 1)
 	{
+		lock_acquire(&filesys_lock);
 		putbuf(buffer, size);
+		lock_release(&filesys_lock);
 		result = size;
 	}
 	else if (fd == 0)
@@ -295,7 +291,7 @@ int write(int fd, const void *buffer, unsigned size)
 		}
 		lock_acquire(&filesys_lock);
 		result = file_write(f, buffer, size);
-		lock_acquire(&filesys_lock);
+		lock_release(&filesys_lock);
 	}
 	return result;
 }
