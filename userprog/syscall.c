@@ -15,6 +15,7 @@
 #include "filesys/file.h"
 #include "devices/input.h"
 #include "threads/palloc.h"
+// #include "include/lib/kernel/console.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -73,6 +74,8 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	// TODO: Your implementation goes here.
 
 	int sys_num = f->R.rax; // syscall number
+	// printf("sysnum: %d\n", sys_num);
+
 	switch (sys_num)
 	{
 	case SYS_HALT:
@@ -280,6 +283,7 @@ int write(int fd, const void *buffer, unsigned size)
 	if (fd == 1)
 	{
 		putbuf(buffer, size);
+
 		result = size;
 	}
 	else if (fd == 0)
@@ -295,7 +299,7 @@ int write(int fd, const void *buffer, unsigned size)
 		}
 		lock_acquire(&filesys_lock);
 		result = file_write(f, buffer, size);
-		lock_acquire(&filesys_lock);
+		lock_release(&filesys_lock);
 	}
 	return result;
 }
